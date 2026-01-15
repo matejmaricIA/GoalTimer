@@ -1,0 +1,8 @@
+{
+  "name": "ForegroundTracker",
+  "version": "1.0.0",
+  "platforms": ["android"],
+  "android": {
+    "modules": ["com.goaltimer.foreground.ForegroundTrackerModule"]
+  }
+}
