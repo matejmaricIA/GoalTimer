@@ -1,7 +1,18 @@
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { RouteProp, useRoute } from '@react-navigation/native';
-import { VictoryAxis, VictoryBar, VictoryChart, VictoryTheme } from 'victory-native';
+import { G } from 'react-native-svg';
+import {
+  Background,
+  Bar as NativeBar,
+  LineSegment,
+  VictoryAxis,
+  VictoryBar,
+  VictoryChart,
+  VictoryContainer,
+  VictoryLabel,
+  VictoryTheme,
+} from 'victory-native';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { SectionTitle } from '../components/SectionTitle';
@@ -59,9 +70,20 @@ export const ActivityDetailsScreen: React.FC = () => {
               theme={VictoryTheme.material}
               domainPadding={{ x: 18, y: 10 }}
               height={220}
+              containerComponent={<VictoryContainer />}
+              groupComponent={<G />}
+              backgroundComponent={<Background />}
+              prependDefaultAxes={false}
             >
               <VictoryAxis
                 tickFormat={(datum) => formatDateShort(datum)}
+                axisComponent={<LineSegment />}
+                axisLabelComponent={<VictoryLabel />}
+                tickLabelComponent={<VictoryLabel />}
+                tickComponent={<LineSegment />}
+                gridComponent={<LineSegment />}
+                containerComponent={<VictoryContainer />}
+                groupComponent={<G />}
                 style={{
                   axis: { stroke: colors.border },
                   tickLabels: { fill: colors.muted, fontSize: 10, padding: 6 },
@@ -69,6 +91,13 @@ export const ActivityDetailsScreen: React.FC = () => {
               />
               <VictoryAxis
                 dependentAxis
+                axisComponent={<LineSegment />}
+                axisLabelComponent={<VictoryLabel />}
+                tickLabelComponent={<VictoryLabel />}
+                tickComponent={<LineSegment />}
+                gridComponent={<LineSegment />}
+                containerComponent={<VictoryContainer />}
+                groupComponent={<G />}
                 style={{
                   axis: { stroke: colors.border },
                   grid: { stroke: colors.border },
@@ -79,6 +108,10 @@ export const ActivityDetailsScreen: React.FC = () => {
                 data={last7.map((entry) => ({ x: entry.date, y: entry.minutes }))}
                 style={{ data: { fill: stats.activity.color || colors.primary } }}
                 cornerRadius={{ top: 6 }}
+                dataComponent={<NativeBar />}
+                labelComponent={<VictoryLabel />}
+                containerComponent={<VictoryContainer />}
+                groupComponent={<G />}
               />
             </VictoryChart>
           )}

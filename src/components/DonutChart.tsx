@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { VictoryPie } from 'victory-native';
+import { G } from 'react-native-svg';
+import { Slice, VictoryContainer, VictoryLabel, VictoryPie } from 'victory-native';
 import { colors, typography } from '../theme';
 
 export type DonutDatum = {
@@ -33,6 +34,10 @@ export const DonutChart: React.FC<Props> = ({
         padAngle={2}
         labels={() => null}
         colorScale={cleaned.map((item) => item.color)}
+        dataComponent={<Slice />}
+        labelComponent={<VictoryLabel />}
+        containerComponent={<VictoryContainer />}
+        groupComponent={<G />}
       />
       {centerLabel ? <Text style={styles.centerLabel}>{centerLabel}</Text> : null}
     </View>
