@@ -1,5 +1,6 @@
 import React from 'react';
-import { SafeAreaView, StyleSheet, ViewStyle } from 'react-native';
+import { StyleSheet, ViewStyle } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme';
 
@@ -8,7 +9,9 @@ export const Screen: React.FC<{ children: React.ReactNode; style?: ViewStyle }> 
   style,
 }) => (
   <LinearGradient colors={[colors.background, colors.backgroundAlt]} style={styles.gradient}>
-    <SafeAreaView style={[styles.safeArea, style]}>{children}</SafeAreaView>
+    <SafeAreaView edges={['top', 'left', 'right']} style={[styles.safeArea, style]}>
+      {children}
+    </SafeAreaView>
   </LinearGradient>
 );
 
