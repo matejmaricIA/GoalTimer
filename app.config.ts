@@ -29,6 +29,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     category: ['BROWSABLE', 'DEFAULT'],
   };
 
+  const isDevClient =
+    process.env.EXPO_DEV_CLIENT === '1' || process.env.EAS_BUILD_PROFILE === 'development';
+  const basePlugins = config.plugins ?? [];
+
   return {
     ...config,
     name: 'GoalTimer',
@@ -39,6 +43,6 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       package: 'com.goaltimer',
       intentFilters: [...androidIntentFilters, trackingIntentFilter],
     },
-    plugins: withUniquePlugins([...(config.plugins ?? []), 'expo-dev-client']),
+    plugins: withUniquePlugins(isDevClient ? [...basePlugins, 'expo-dev-client'] : basePlugins),
   };
 };
