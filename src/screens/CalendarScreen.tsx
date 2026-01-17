@@ -1,16 +1,20 @@
 import React, { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useNavigation } from '@react-navigation/native';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { DonutChart } from '../components/DonutChart';
 import { SectionTitle } from '../components/SectionTitle';
 import { ColorDot } from '../components/ColorDot';
 import { useAppStore } from '../stores/AppStore';
+import { RootStackParamList } from '../navigation/types';
 import { addDays, toDateKey } from '../utils/date';
 import { colors, spacing, typography } from '../theme';
 
 export const CalendarScreen: React.FC = () => {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { goals, getDailySummary, now } = useAppStore();
   const todayKey = toDateKey(now);
   const [selectedDate, setSelectedDate] = useState(todayKey);
@@ -158,7 +162,32 @@ export const CalendarScreen: React.FC = () => {
                 </View>
                 <Text style={styles.activityValue}>{activity.workedMinutes} / {activity.goalMinutes} min</Text>
               </View>
-              {activity.note ? <Text style={styles.noteIndicator}>Note added</Text> : null}
+              {activity.note ? (
+                <>
+                  <Text style={styles.noteText} numberOfLines={3}>{activity.note}</Text>
+                  <Pressable
+                    onPress={() =>
+                      navigation.navigate('NoteEditor', {
+                        activityId: activity.activityId,
+                        date: selectedDate,
+                      })
+                    }
+                  >
+                    <Text style={styles.noteLink}>View note</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <Pressable
+                  onPress={() =>
+                    navigation.navigate('NoteEditor', {
+                      activityId: activity.activityId,
+                      date: selectedDate,
+                    })
+                  }
+                >
+                  <Text style={styles.noteLink}>Add note</Text>
+                </Pressable>
+              )}
             </Card>
           ))
         )}
@@ -252,10 +281,15 @@ const styles = StyleSheet.create({
     fontSize: typography.size.sm,
     color: colors.text,
   },
-  noteIndicator: {
+  noteText: {
     fontFamily: typography.fontFamily.regular,
     fontSize: typography.size.sm,
     color: colors.muted,
+  },
+  noteLink: {
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.size.sm,
+    color: colors.primary,
   },
   emptyText: {
     fontFamily: typography.fontFamily.regular,
