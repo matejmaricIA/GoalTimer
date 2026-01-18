@@ -34,6 +34,11 @@ export class ExpoNotificationAdapter implements NotificationAdapter {
       importance: Notifications.AndroidImportance.DEFAULT,
       sound: null,
     });
+    await Notifications.setNotificationChannelAsync('reminders', {
+      name: 'Reminders',
+      importance: Notifications.AndroidImportance.DEFAULT,
+      sound: null,
+    });
   }
 
   async updateTracking(payload: TrackingNotificationPayload): Promise<void> {

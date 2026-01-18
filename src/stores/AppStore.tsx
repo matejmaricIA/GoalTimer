@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Linking } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import * as Haptics from 'expo-haptics';
 import { runMigrations } from '../db/migrations';
 import { seedIfNeeded } from '../db/seed';
@@ -56,6 +57,7 @@ type AppContextValue = {
   sessions: Session[];
   notes: Note[];
   runningSession: Session | null;
+  breakEndsAt: number | null;
   now: number;
   createActivity: (input: { name: string; color?: string | null; defaultGoalMinutes?: number | null }) => Promise<void>;
   updateActivity: (
@@ -71,6 +73,8 @@ type AppContextValue = {
   startTracking: (activityId: string) => Promise<void>;
   pauseTracking: () => Promise<void>;
   stopTracking: () => Promise<void>;
+  startBreak: (minutes: number) => Promise<void>;
+  endBreak: () => Promise<void>;
   switchTracking: (activityId: string) => Promise<void>;
   toggleActivityTracking: (activityId: string) => Promise<void>;
   getDailySummary: (date: string) => DailySummary;
@@ -78,6 +82,10 @@ type AppContextValue = {
   getActivityStats: (activityId: string) => ActivityStats;
   exportData: () => Promise<string>;
 };
+
+const BREAK_END_TYPE = 'break-end';
+const WORK_REMINDER_TYPE = 'work-break-reminder';
+const ONE_HOUR_MS = 60 * 60 * 1000;
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
 
@@ -88,7 +96,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [sessions, setSessions] = useState<Session[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [runningSession, setRunningSession] = useState<Session | null>(null);
-  const [now, setNow] = useState(Date.now());
+  const [breakEndsAt, setBreakEndsAt] = useState<number | null>(null);
+  const [now, setNow] = useState(0);
   const [pendingTrackingAction, setPendingTrackingAction] = useState<TrackingAction | null>(null);
 
   const activityRepo = useMemo(() => new ActivityRepoSqlite(), []);
@@ -100,10 +109,98 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const userIdentity = useMemo(() => new LocalUserIdentity(), []);
 
   const summaryCache = useRef<Map<string, DailySummary>>(new Map());
+  const breakNotificationId = useRef<string | null>(null);
+  const workReminderId = useRef<string | null>(null);
 
   const clearSummaryCache = useCallback(() => {
     summaryCache.current.clear();
   }, []);
+
+  const cancelNotificationsByType = useCallback(async (type: string) => {
+    try {
+      const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+      const matches = scheduled.filter((item) => item.content?.data?.type === type);
+      await Promise.all(
+        matches.map((item) =>
+          Notifications.cancelScheduledNotificationAsync(item.identifier).catch(() => undefined),
+        ),
+      );
+    } catch {
+      // ignore notification cleanup failures
+    }
+  }, []);
+
+  const cancelBreakNotification = useCallback(async () => {
+    if (breakNotificationId.current) {
+      await Notifications.cancelScheduledNotificationAsync(breakNotificationId.current).catch(
+        () => undefined,
+      );
+      breakNotificationId.current = null;
+      return;
+    }
+    await cancelNotificationsByType(BREAK_END_TYPE);
+  }, [cancelNotificationsByType]);
+
+  const cancelWorkReminder = useCallback(async () => {
+    if (workReminderId.current) {
+      await Notifications.cancelScheduledNotificationAsync(workReminderId.current).catch(
+        () => undefined,
+      );
+      workReminderId.current = null;
+      return;
+    }
+    await cancelNotificationsByType(WORK_REMINDER_TYPE);
+  }, [cancelNotificationsByType]);
+
+  const scheduleBreakNotification = useCallback(
+    async (minutes: number) => {
+      if (!minutes || minutes <= 0) {
+        return;
+      }
+      await cancelBreakNotification();
+      const seconds = Math.max(1, Math.round(minutes * 60));
+      try {
+        const id = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: 'Break over',
+            body: 'Time to get back to it.',
+            data: { type: BREAK_END_TYPE },
+            channelId: 'reminders',
+          },
+          trigger: { seconds },
+        });
+        breakNotificationId.current = id;
+      } catch {
+        // ignore notification scheduling failures
+      }
+    },
+    [cancelBreakNotification],
+  );
+
+  const scheduleWorkReminder = useCallback(
+    async (session: Session) => {
+      await cancelWorkReminder();
+      const remainingMs = ONE_HOUR_MS - (Date.now() - session.startTs);
+      if (remainingMs <= 0) {
+        return;
+      }
+      try {
+        const id = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: 'Time for a short break?',
+            body: 'You have been focused for an hour. Consider taking a quick breather.',
+            data: { type: WORK_REMINDER_TYPE, sessionId: session.id },
+            channelId: 'reminders',
+          },
+          trigger: { seconds: Math.ceil(remainingMs / 1000) },
+        });
+        workReminderId.current = id;
+      } catch {
+        // ignore notification scheduling failures
+      }
+    },
+    [cancelWorkReminder],
+  );
 
   const invalidateDates = useCallback((dates: string[]) => {
     dates.forEach((date) => summaryCache.current.delete(date));
@@ -184,10 +281,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ]);
 
   useEffect(() => {
-    const intervalMs = runningSession ? 1000 : 60000;
+    setNow(Date.now());
+    const intervalMs = runningSession || breakEndsAt ? 1000 : 60000;
     const interval = setInterval(() => setNow(Date.now()), intervalMs);
     return () => clearInterval(interval);
-  }, [runningSession]);
+  }, [breakEndsAt, runningSession]);
+
+  useEffect(() => {
+    if (!breakEndsAt) {
+      return;
+    }
+    if (now >= breakEndsAt) {
+      setBreakEndsAt(null);
+    }
+  }, [breakEndsAt, now]);
 
   useEffect(() => {
     if (!runningSession) {
@@ -195,6 +302,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     invalidateDates(getDatesBetween(runningSession.startTs, now));
   }, [invalidateDates, now, runningSession]);
+
+  useEffect(() => {
+    if (runningSession) {
+      if (!workReminderId.current) {
+        scheduleWorkReminder(runningSession);
+      }
+      return;
+    }
+    if (workReminderId.current) {
+      cancelWorkReminder();
+    }
+  }, [cancelWorkReminder, runningSession, scheduleWorkReminder]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', async (state) => {
@@ -347,6 +466,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const startTracking = useCallback(
     async (activityId: string) => {
+      await cancelBreakNotification();
+      setBreakEndsAt(null);
+      await cancelWorkReminder();
       const nowTs = Date.now();
       if (runningSession) {
         await sessionRepo.endSession(runningSession.id, nowTs);
@@ -370,15 +492,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           startTs: session.startTs,
         });
       }
+      await scheduleWorkReminder(session);
       Haptics.selectionAsync().catch(() => undefined);
     },
-    [activities, invalidateDates, runningSession, sessionRepo, trackingService],
+    [
+      activities,
+      cancelBreakNotification,
+      cancelWorkReminder,
+      invalidateDates,
+      runningSession,
+      scheduleWorkReminder,
+      sessionRepo,
+      trackingService,
+    ],
   );
 
   const pauseTracking = useCallback(async () => {
     if (!runningSession) {
       return;
     }
+    await cancelWorkReminder();
     const nowTs = Date.now();
     await sessionRepo.endSession(runningSession.id, nowTs);
     setSessions((prev) =>
@@ -400,12 +533,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await trackingService.pauseTracking();
     }
     Haptics.selectionAsync().catch(() => undefined);
-  }, [activities, invalidateDates, runningSession, sessionRepo, trackingService]);
+  }, [activities, cancelWorkReminder, invalidateDates, runningSession, sessionRepo, trackingService]);
 
   const stopTracking = useCallback(async () => {
     if (!runningSession) {
       return;
     }
+    await cancelWorkReminder();
     const nowTs = Date.now();
     await sessionRepo.endSession(runningSession.id, nowTs);
     setSessions((prev) =>
@@ -418,7 +552,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     invalidateDates(getDatesBetween(runningSession.startTs, nowTs));
     await trackingService.stopTracking();
     Haptics.selectionAsync().catch(() => undefined);
-  }, [invalidateDates, runningSession, sessionRepo, trackingService]);
+  }, [cancelWorkReminder, invalidateDates, runningSession, sessionRepo, trackingService]);
+
+  const startBreak = useCallback(
+    async (minutes: number) => {
+      if (!minutes || minutes <= 0) {
+        return;
+      }
+      const endTs = Date.now() + minutes * 60 * 1000;
+      if (runningSession) {
+        await pauseTracking();
+      }
+      setBreakEndsAt(endTs);
+      await scheduleBreakNotification(minutes);
+    },
+    [pauseTracking, runningSession, scheduleBreakNotification],
+  );
+
+  const endBreak = useCallback(async () => {
+    setBreakEndsAt(null);
+    await cancelBreakNotification();
+  }, [cancelBreakNotification]);
 
   const parseTrackingAction = useCallback((url: string): TrackingAction | null => {
     if (!url.includes('://tracking')) {
@@ -637,7 +791,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         dailyMinutes,
       };
     },
-    [activities, getDailySummary, goals, now],
+    [activities, getDailySummary, goals, now, sessions],
   );
 
   const exportData = useCallback(async (): Promise<string> => {
@@ -658,6 +812,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     sessions,
     notes,
     runningSession,
+    breakEndsAt,
     now,
     createActivity,
     updateActivity,
@@ -670,6 +825,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     startTracking,
     pauseTracking,
     stopTracking,
+    startBreak,
+    endBreak,
     switchTracking,
     toggleActivityTracking,
     getDailySummary,

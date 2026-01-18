@@ -18,6 +18,11 @@ let fallbackRunning = false;
 export const foregroundTracking: ForegroundTrackingAdapter = {
   init: async () => {
     await Notifications.requestPermissionsAsync();
+    await Notifications.setNotificationChannelAsync('reminders', {
+      name: 'Reminders',
+      importance: Notifications.AndroidImportance.DEFAULT,
+      sound: null,
+    });
     if (!nativeModule) {
       await fallbackAdapter.init();
     }

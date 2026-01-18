@@ -15,6 +15,7 @@ import { Button } from '../components/Button';
 import { ProgressBar } from '../components/ProgressBar';
 import { SectionTitle } from '../components/SectionTitle';
 import { ColorDot } from '../components/ColorDot';
+import { DurationSlider } from '../components/DurationSlider';
 import { useAppStore } from '../stores/AppStore';
 import { RootStackParamList } from '../navigation/types';
 import { colors, spacing, typography } from '../theme';
@@ -30,15 +31,22 @@ export const TodayScreen: React.FC = () => {
     notes,
     sessions,
     runningSession,
+    breakEndsAt,
     now,
     toggleActivityTracking,
     pauseTracking,
     stopTracking,
+    startBreak,
+    endBreak,
     switchTracking,
     ensureDailyGoalsForDate,
     getDailySummary,
   } = useAppStore();
   const [switchModalOpen, setSwitchModalOpen] = useState(false);
+  const [breakModalOpen, setBreakModalOpen] = useState(false);
+  const [customBreakMinutes, setCustomBreakMinutes] = useState(10);
+
+  const quickBreakOptions = [5, 15, 30];
 
   const todayKey = toDateKey(now);
 
@@ -84,11 +92,36 @@ export const TodayScreen: React.FC = () => {
   const runningElapsedSeconds = runningSession
     ? secondsFromMs(now - runningSession.startTs)
     : 0;
+  const breakRemainingSeconds = breakEndsAt
+    ? Math.max(0, secondsFromMs(breakEndsAt - now))
+    : 0;
+
+  const handleStartBreak = async (minutes: number) => {
+    if (!minutes || minutes <= 0) {
+      return;
+    }
+    setBreakModalOpen(false);
+    await startBreak(minutes);
+  };
 
   return (
     <Screen>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <SectionTitle title="Today" subtitle={todayKey} />
+
+        {breakEndsAt && breakRemainingSeconds > 0 ? (
+          <Card style={styles.breakCard}>
+            <View style={styles.breakRow}>
+              <View>
+                <Text style={styles.breakTitle}>Break in progress</Text>
+                <Text style={styles.breakSubtitle}>
+                  Ends in {formatDuration(breakRemainingSeconds)}
+                </Text>
+              </View>
+              <Button title="End break" variant="ghost" onPress={endBreak} style={styles.breakAction} />
+            </View>
+          </Card>
+        ) : null}
 
         {runningSession && runningActivity ? (
           <Card style={styles.stickyCard}>
@@ -100,6 +133,12 @@ export const TodayScreen: React.FC = () => {
               <Button title="Stop" variant="ghost" onPress={stopTracking} />
               <Button title="Switch" onPress={() => setSwitchModalOpen(true)} />
             </View>
+            <Button
+              title="Take a break"
+              variant="secondary"
+              onPress={() => setBreakModalOpen(true)}
+              style={styles.breakButton}
+            />
           </Card>
         ) : null}
 
@@ -231,6 +270,51 @@ export const TodayScreen: React.FC = () => {
           </Card>
         </View>
       </Modal>
+
+      <Modal animationType="slide" visible={breakModalOpen} transparent>
+        <View style={styles.modalOverlay}>
+          <Card style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Take a break</Text>
+            <Text style={styles.modalSubtitle}>Pick a timer or set your own.</Text>
+
+            <View style={styles.breakOptionsRow}>
+              {quickBreakOptions.map((minutes) => (
+                <Pressable
+                  key={minutes}
+                  style={({ pressed }) => [
+                    styles.breakOption,
+                    pressed ? styles.breakOptionPressed : null,
+                  ]}
+                  onPress={() => handleStartBreak(minutes)}
+                >
+                  <Text style={styles.breakOptionText}>{minutes} min</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <View style={styles.customBreakSection}>
+              <View style={styles.customBreakHeader}>
+                <Text style={styles.customBreakLabel}>Custom</Text>
+                <Text style={styles.customBreakValue}>{customBreakMinutes} min</Text>
+              </View>
+              <DurationSlider
+                min={1}
+                max={60}
+                step={1}
+                value={customBreakMinutes}
+                onChange={setCustomBreakMinutes}
+              />
+              <Button
+                title={`Start ${customBreakMinutes} min break`}
+                variant="secondary"
+                onPress={() => handleStartBreak(customBreakMinutes)}
+              />
+            </View>
+
+            <Button title="Cancel" variant="ghost" onPress={() => setBreakModalOpen(false)} />
+          </Card>
+        </View>
+      </Modal>
     </Screen>
   );
 };
@@ -266,6 +350,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: spacing.sm,
+  },
+  breakCard: {
+    backgroundColor: colors.highlight,
+    gap: spacing.xs,
+  },
+  breakRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  breakTitle: {
+    fontFamily: typography.fontFamily.bold,
+    fontSize: typography.size.md,
+    color: colors.text,
+  },
+  breakSubtitle: {
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.size.sm,
+    color: colors.muted,
+  },
+  breakAction: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  breakButton: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
   },
   banner: {
     flexDirection: 'row',
@@ -347,6 +461,11 @@ const styles = StyleSheet.create({
     fontSize: typography.size.lg,
     color: colors.text,
   },
+  modalSubtitle: {
+    fontFamily: typography.fontFamily.regular,
+    fontSize: typography.size.sm,
+    color: colors.muted,
+  },
   modalItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -354,6 +473,50 @@ const styles = StyleSheet.create({
   },
   modalItemText: {
     fontFamily: typography.fontFamily.medium,
+    fontSize: typography.size.md,
+    color: colors.text,
+  },
+  breakOptionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  breakOption: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: 999,
+    backgroundColor: colors.backgroundAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  breakOptionPressed: {
+    transform: [{ scale: 0.98 }],
+    backgroundColor: colors.highlight,
+  },
+  breakOptionText: {
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.size.sm,
+    color: colors.text,
+  },
+  customBreakSection: {
+    marginTop: spacing.md,
+    gap: spacing.sm,
+  },
+  customBreakHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  customBreakLabel: {
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.size.xs,
+    color: colors.muted,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  customBreakValue: {
+    fontFamily: typography.fontFamily.bold,
     fontSize: typography.size.md,
     color: colors.text,
   },
